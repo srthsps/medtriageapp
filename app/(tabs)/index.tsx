@@ -1,98 +1,238 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import * as DocumentPicker from "expo-document-picker";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+interface Disease {
+  name: string;
+  score: number;
+}
 
-export default function HomeScreen() {
+interface ApiResult {
+  patientName: string;
+  analysisDate: string;
+  findings: Disease[];
+  imageBase64: string;
+}
+
+export default function App() {
+  const API_URL = "http://10.119.82.86:5000/api/analysis";
+
+  const [result, setResult] = useState<ApiResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
+
+  const pickAndUpload = async () => {
+    try {
+      const doc = await DocumentPicker.getDocumentAsync({
+        type: "*/*",
+        copyToCacheDirectory: true,
+      });
+      if (doc.canceled) return;
+
+      const file = doc.assets[0];
+      setFileName(file.name);
+      setLoading(true);
+      setResult(null);
+
+      const formData = new FormData();
+      // @ts-ignore
+      formData.append("file", {
+        uri: file.uri,
+        name: file.name,
+        type: "application/dicom",
+      });
+
+      console.log("Uploading...");
+      const response = await fetch(API_URL, {
+        method: "POST",
+        body: formData,
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.message || "Server Error");
+
+      setResult(json);
+    } catch (error: any) {
+      Alert.alert("Error", error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.header}>MedTriage AI</Text>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      <View style={styles.card}>
+        <Text style={styles.label}>Patient Scan</Text>
+        <TouchableOpacity style={styles.uploadBtn} onPress={pickAndUpload}>
+          <Text style={styles.uploadText}>
+            {fileName ? "Change File" : "Select DICOM File"}
+          </Text>
+        </TouchableOpacity>
+        {fileName && <Text style={styles.fileName}>{fileName}</Text>}
+      </View>
+
+      {loading && (
+        <ActivityIndicator
+          size="large"
+          color="#2196f3"
+          style={{ marginVertical: 20 }}
+        />
+      )}
+
+      {result && (
+        <View style={styles.resultContainer}>
+          <Text style={styles.sectionTitle}>Scan Preview</Text>
+          <Image
+            source={{ uri: result.imageBase64 }}
+            style={styles.xrayImage}
+            resizeMode="contain"
+          />
+
+          <View style={styles.infoCard}>
+            <Text style={styles.infoLabel}>Patient:</Text>
+            <Text style={styles.infoValue}>{result.patientName}</Text>
+            <Text style={styles.infoLabel}>Date:</Text>
+            <Text style={styles.infoValue}>{result.analysisDate}</Text>
+          </View>
+
+          <Text style={styles.sectionTitle}>AI Findings</Text>
+          {result.findings.map((item, index) => (
+            <View key={index} style={styles.findingRow}>
+              <Text style={styles.diseaseName}>{item.name}</Text>
+
+              <View style={styles.progressBarBg}>
+                <View
+                  style={{
+                    ...styles.progressBarFill,
+                    width: `${item.score}%`,
+                    backgroundColor: item.score > 50 ? "#ff4444" : "#4caf50",
+                  }}
+                />
+              </View>
+
+              <Text style={styles.scoreText}>{item.score.toFixed(1)}%</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    padding: 20,
+    backgroundColor: "#f8f9fa",
+    flexGrow: 1,
+    alignItems: "center",
   },
-  stepContainer: {
-    gap: 8,
+  header: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#1a237e",
+    marginBottom: 20,
+    marginTop: 40,
+  },
+
+  card: {
+    width: "100%",
+    backgroundColor: "white",
+    padding: 20,
+    borderRadius: 12,
+    elevation: 2,
+    marginBottom: 10,
+  },
+  label: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 10,
+    textTransform: "uppercase",
+    fontWeight: "bold",
+  },
+
+  uploadBtn: {
+    backgroundColor: "#e3f2fd",
+    padding: 15,
+    borderRadius: 8,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#2196f3",
+    borderStyle: "dashed",
+  },
+  uploadText: { color: "#1565c0", fontWeight: "600", fontSize: 16 },
+  fileName: {
+    marginTop: 10,
+    textAlign: "center",
+    color: "#666",
+    fontStyle: "italic",
+  },
+
+  resultContainer: { width: "100%" },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+    marginTop: 20,
+    marginBottom: 10,
+  },
+
+  xrayImage: {
+    width: "100%",
+    height: 300,
+    backgroundColor: "black",
+    borderRadius: 10,
+  },
+
+  infoCard: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    backgroundColor: "white",
+    padding: 15,
+    borderRadius: 10,
+    marginTop: 10,
+  },
+  infoLabel: {
+    fontWeight: "bold",
+    color: "#555",
+    marginRight: 5,
+    width: "20%",
+  },
+  infoValue: { marginRight: 15, color: "#333", width: "25%" },
+
+  findingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "white",
+    padding: 15,
     marginBottom: 8,
+    borderRadius: 8,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  diseaseName: { width: 100, fontSize: 15, fontWeight: "500", color: "#333" },
+  progressBarBg: {
+    flex: 1,
+    height: 10,
+    backgroundColor: "#eee",
+    borderRadius: 5,
+    marginHorizontal: 10,
+  },
+  progressBarFill: { height: "100%", borderRadius: 5 },
+  scoreText: {
+    width: 50,
+    textAlign: "right",
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#555",
   },
 });
